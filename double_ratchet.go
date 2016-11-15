@@ -42,13 +42,7 @@ func (e *Entity) send() Msg {
 		e.r_flag = false
 	}
 	toSend := Msg{e.name, e.rid, e.j, e.our_dh_pub}
-
-	if e.name == "Alice" {
-		cj = e.retriveChainkey(e.rid, e.j, true)
-	} else {
-		cj = e.retriveChainkey(e.rid, e.j, false)
-	}
-
+	cj = e.retriveChainkey(e.rid, e.j)
 	e.j += 1
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	fmt.Printf("%s \tour key: %x\n", e.name, cj)
@@ -67,17 +61,14 @@ func (e *Entity) receive(m Msg) {
 		e.derive(secret)
 		e.k = 0
 	}
-	if e.name == "Bob" {
-		ck = e.retriveChainkey(m.rid, m.mid, true)
-	} else {
-		ck = e.retriveChainkey(m.rid, m.mid, false)
-	}
+	ck = e.retriveChainkey(m.rid, m.mid)
 	fmt.Printf("%s \ttheir key: %x\n", e.name, ck)
 }
 
-func (e *Entity) retriveChainkey(rid, mid int, alice bool) key {
+func (e *Entity) retriveChainkey(rid, mid int) key {
 	var ck key
 	buf := make([]byte, 64)
+	alice := rid%2 == 1
 	if alice {
 		ck = e.Ca[rid]
 	} else {
