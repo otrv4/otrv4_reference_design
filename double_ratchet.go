@@ -25,13 +25,13 @@ type Entity struct {
 	our_dh_pub, their_dh pubkey
 	our_dh_priv          seckey
 	R                    []key
-	Ca, Cb               [][]key
+	Ca, Cb               []key
 	rid, j, k            int
 	r_flag               bool
 }
 
 func (e *Entity) send() Msg {
-	cj := make([]byte, 64)
+	var cj key
 	if e.r_flag {
 		fmt.Printf("%s \tRatcheting...\n", e.name)
 		e.genDH()
@@ -40,26 +40,18 @@ func (e *Entity) send() Msg {
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret)
 		e.r_flag = false
-	} else {
-		if e.name == "Alice" {
-			sha3.ShakeSum256(cj, e.Ca[e.rid][e.j-1])
-			e.Ca[e.rid] = append(e.Ca[e.rid], cj)
-		} else {
-			sha3.ShakeSum256(cj, e.Cb[e.rid][e.j-1])
-			e.Cb[e.rid] = append(e.Cb[e.rid], cj)
-		}
 	}
 	toSend := Msg{e.name, e.rid, e.j, e.our_dh_pub}
 
 	if e.name == "Alice" {
-		cj = e.Ca[e.rid][e.j]
+		cj = e.retriveChainkey(e.rid, e.j, true)
 	} else {
-		cj = e.Cb[e.rid][e.j]
+		cj = e.retriveChainkey(e.rid, e.j, false)
 	}
 
 	e.j += 1
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
-	fmt.Printf("%s \tkey: %x\n", e.name, cj)
+	fmt.Printf("%s \tour key: %x\n", e.name, cj)
 	return toSend
 }
 
@@ -74,23 +66,28 @@ func (e *Entity) receive(m Msg) {
 		e.r_flag = true
 		e.derive(secret)
 		e.k = 0
-	} else {
-		if e.name == "Bob" {
-			sha3.ShakeSum256(ck, e.Ca[e.rid][e.k])
-			e.Ca[e.rid] = append(e.Ca[e.rid], ck)
-		} else {
-			sha3.ShakeSum256(ck, e.Cb[e.rid][e.k])
-			e.Cb[e.rid] = append(e.Cb[e.rid], ck)
-		}
-		e.k += 1
 	}
-
 	if e.name == "Bob" {
-		ck = e.Ca[e.rid][e.k]
+		ck = e.retriveChainkey(m.rid, m.mid, true)
 	} else {
-		ck = e.Cb[e.rid][e.k]
+		ck = e.retriveChainkey(m.rid, m.mid, false)
 	}
-	fmt.Printf("%s \tkey: %x\n", e.name, ck)
+	fmt.Printf("%s \ttheir key: %x\n", e.name, ck)
+}
+
+func (e *Entity) retriveChainkey(rid, mid int, alice bool) key {
+	var ck key
+	buf := make([]byte, 64)
+	if alice {
+		ck = e.Ca[rid]
+	} else {
+		ck = e.Cb[rid]
+	}
+	copy(buf, ck)
+	for i := mid; i > 0; i-- {
+		sha3.ShakeSum256(buf, buf)
+	}
+	return buf
 }
 
 func (e *Entity) derive(secret [64]byte) {
@@ -106,8 +103,8 @@ func (e *Entity) derive(secret [64]byte) {
 	sha3.ShakeSum256(cb, append(secret[:], 2))
 
 	e.R = append(e.R, r)
-	e.Ca = append(e.Ca, []key{ca})
-	e.Cb = append(e.Cb, []key{cb})
+	e.Ca = append(e.Ca, ca)
+	e.Cb = append(e.Cb, cb)
 }
 
 func (e *Entity) genDH() {
@@ -120,9 +117,10 @@ func main() {
 	a, b := initialize()
 
 	b.receive(a.send())
-	b.receive(a.send())
-	b.receive(a.send())
-	a.receive(b.send())
+	m1 := a.send()
+	m2 := b.send()
+	a.receive(m2)
+	b.receive(m1)
 	a.receive(b.send())
 	b.receive(a.send())
 }
