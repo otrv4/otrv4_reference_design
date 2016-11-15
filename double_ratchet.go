@@ -38,7 +38,7 @@ func (e *Entity) send() Msg {
 		e.rid += 1
 		e.j = 0
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-		e.derive(secret)
+		e.derive(secret[:])
 		e.r_flag = false
 	}
 	toSend := Msg{e.name, e.rid, e.j, e.our_dh_pub}
@@ -58,7 +58,7 @@ func (e *Entity) receive(m Msg) {
 		e.their_dh = m.dh
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.r_flag = true
-		e.derive(secret)
+		e.derive(secret[:])
 		e.k = 0
 	}
 	ck = e.retriveChainkey(m.rid, m.mid)
@@ -81,17 +81,16 @@ func (e *Entity) retriveChainkey(rid, mid int) key {
 	return buf
 }
 
-func (e *Entity) derive(secret [64]byte) {
+func (e *Entity) derive(secret []byte) {
 	r := make([]byte, 64)
 	ca := make([]byte, 64)
 	cb := make([]byte, 64)
 	if len(e.R) > 0 {
-		sha3.ShakeSum256(r, append(append(secret[:], e.R[e.rid-1]...), 0))
-	} else {
-		sha3.ShakeSum256(r, append(secret[:], 0))
+		secret = append(secret, e.R[e.rid-1]...)
 	}
-	sha3.ShakeSum256(ca, append(secret[:], 1))
-	sha3.ShakeSum256(cb, append(secret[:], 2))
+	sha3.ShakeSum256(r, append(secret, 0))
+	sha3.ShakeSum256(ca, append(secret, 1))
+	sha3.ShakeSum256(cb, append(secret, 2))
 
 	e.R = append(e.R, r)
 	e.Ca = append(e.Ca, ca)
@@ -126,11 +125,11 @@ func initialize() (alice, bob Entity) {
 	secret := c.ComputeSecret(alice.our_dh_priv, alice.their_dh)
 
 	alice.name = "Alice"
-	alice.derive(secret)
+	alice.derive(secret[:])
 	alice.r_flag = true
 
 	bob.name = "Bob"
-	bob.derive(secret)
+	bob.derive(secret[:])
 	bob.r_flag = false
 	return alice, bob
 }
