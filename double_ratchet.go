@@ -54,15 +54,17 @@ func (e *Entity) receive(m Msg) {
 	ck := make([]byte, 64)
 	if m.rid == e.rid+1 {
 		fmt.Printf("%s \tFollow Ratcheting...\n", e.name)
-		e.rid += 1
-		e.k = 0
-		e.j = 0
+		e.rid = m.rid
 		e.their_dh = m.dh
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
+		e.j = 0 // need to ratchet next time when send
 	} else if m.rid != e.rid && m.rid != e.rid-1 {
-		panic("damn")
+		panic("we received a message skip a ratchet")
+	} else if e.k > m.mid {
+		panic("we received a message delayed out of order")
 	}
+	e.k = m.mid
 	ck = e.retriveChainkey(m.rid, m.mid)
 	fmt.Printf("%s \ttheir key: %x\n", e.name, ck)
 }
@@ -106,8 +108,10 @@ func main() {
 	b.receive(a.send())
 	m1 := a.send()
 	m2 := b.send()
-	a.receive(m2)
+	m3 := a.send()
 	b.receive(m1)
+	a.receive(m2)
+	b.receive(m3)
 	a.receive(b.send())
 	b.receive(a.send())
 }
