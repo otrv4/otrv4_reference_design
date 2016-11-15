@@ -27,19 +27,18 @@ type Entity struct {
 	R                    []key
 	Ca, Cb               []key
 	rid, j, k            int
-	r_flag               bool
+	initiator            bool
 }
 
 func (e *Entity) send() Msg {
 	var cj key
-	if e.r_flag {
+	if e.j == 0 && !(e.rid == 0 && !e.initiator) {
+		fmt.Println()
 		fmt.Printf("%s \tRatcheting...\n", e.name)
-		e.genDH()
+		e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
 		e.rid += 1
-		e.j = 0
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
-		e.r_flag = false
 	}
 	toSend := Msg{e.name, e.rid, e.j, e.our_dh_pub}
 	cj = e.retriveChainkey(e.rid, e.j)
@@ -50,16 +49,19 @@ func (e *Entity) send() Msg {
 }
 
 func (e *Entity) receive(m Msg) {
+	fmt.Println()
 	fmt.Printf("%s \treceive: %v\n", e.name, m)
 	ck := make([]byte, 64)
 	if m.rid == e.rid+1 {
 		fmt.Printf("%s \tFollow Ratcheting...\n", e.name)
 		e.rid += 1
+		e.k = 0
+		e.j = 0
 		e.their_dh = m.dh
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-		e.r_flag = true
 		e.derive(secret[:])
-		e.k = 0
+	} else if m.rid != e.rid && m.rid != e.rid-1 {
+		panic("damn")
 	}
 	ck = e.retriveChainkey(m.rid, m.mid)
 	fmt.Printf("%s \ttheir key: %x\n", e.name, ck)
@@ -97,15 +99,10 @@ func (e *Entity) derive(secret []byte) {
 	e.Cb = append(e.Cb, cb)
 }
 
-func (e *Entity) genDH() {
-	c := ed448.NewCurve()
-	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
-	return
-}
-
 func main() {
 	a, b := initialize()
 
+	a.receive(b.send())
 	b.receive(a.send())
 	m1 := a.send()
 	m2 := b.send()
@@ -125,11 +122,12 @@ func initialize() (alice, bob Entity) {
 	secret := c.ComputeSecret(alice.our_dh_priv, alice.their_dh)
 
 	alice.name = "Alice"
+	alice.initiator = true
 	alice.derive(secret[:])
-	alice.r_flag = true
 
 	bob.name = "Bob"
+	bob.initiator = false
 	bob.derive(secret[:])
-	bob.r_flag = false
+
 	return alice, bob
 }
