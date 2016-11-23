@@ -38,7 +38,6 @@ type Entity struct {
 	R                    []key
 	Ca, Cb               []key
 	rid, j, k            int
-	initiator            bool
 }
 
 func (e *Entity) sendData() Msg {
@@ -84,8 +83,6 @@ func (e *Entity) receiveP1(m Msg) {
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
 	}
-	//TODO: should we keep this?
-	e.initiator = false
 }
 
 func (e *Entity) receiveP2(m Msg) {
@@ -105,8 +102,6 @@ func (e *Entity) receiveData(m Msg) {
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
 		e.j = 0 // need to ratchet next time when send
-	} else if m.rid != e.rid && m.rid != e.rid-1 {
-		panic("we received a message skip a ratchet")
 	} else if e.k > m.mid {
 		panic("we received a message delayed out of order")
 	}
@@ -163,9 +158,6 @@ func (e *Entity) sendP1() Msg {
 		e.derive(secret[:])
 	}
 
-	//TODO: should we keep this?
-	e.initiator = true
-
 	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub}
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	return toSend
@@ -189,14 +181,18 @@ func main() {
 	a.receive(b.sendP1())
 	b.receive(a.sendP2())
 
+	fmt.Println("=========================")
 	fmt.Println("Testing sync data message")
+	fmt.Println("=========================")
 
 	a.receive(b.sendData())
 	a.receive(b.sendData())
 	b.receive(a.sendData())
 	b.receive(a.sendData())
 
+	fmt.Println("=========================")
 	fmt.Println("Testing async data message")
+	fmt.Println("=========================")
 
 	m1 := a.sendData()
 	m2 := b.sendData()
@@ -205,7 +201,9 @@ func main() {
 	b.receive(m3)
 	a.receive(m2)
 
+	fmt.Println("=========================")
 	fmt.Println("Testing new sync DAKE")
+	fmt.Println("=========================")
 
 	b.receive(a.query())
 	a.receive(b.sendP1())
@@ -216,6 +214,26 @@ func main() {
 	a.receive(b.sendData())
 	a.receive(b.sendData())
 
+	fmt.Println("=========================")
+	fmt.Println("Testing async DAKE message")
+	fmt.Println("=========================")
+
+	b.receive(a.query())
+
+	p1 := b.sendP1()
+	a.receive(p1)
+
+	b0 := b.sendData()
+	b1 := b.sendData()
+
+	p2 := a.sendP2()
+	a0 := a.sendData()
+
+	b.receive(p2)
+	b.receive(a0)
+
+	a.receive(b0)
+	a.receive(b1)
 }
 
 func initialize() (alice, bob Entity) {
