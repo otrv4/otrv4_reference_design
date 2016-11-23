@@ -25,19 +25,20 @@ type Msg struct {
 
 var c = ed448.NewCurve()
 var NULLSEC = seckey{}
+var NULLPUB = pubkey{}
 
 type seckey [144]byte
 type pubkey [56]byte
 type key []byte
 
 type Entity struct {
-	name                                  string
-	our_dh_pub, prev_our_dh_pub, their_dh pubkey
-	our_dh_priv, prev_our_dh_priv         seckey
-	R                                     []key
-	Ca, Cb                                []key
-	rid, j, k                             int
-	initiator                             bool
+	name                 string
+	our_dh_pub, their_dh pubkey
+	our_dh_priv          seckey
+	R                    []key
+	Ca, Cb               []key
+	rid, j, k            int
+	initiator            bool
 }
 
 func (e *Entity) sendData() Msg {
@@ -77,23 +78,14 @@ func (e *Entity) receive(m Msg) {
 }
 
 func (e *Entity) receiveP1(m Msg) {
-	if bytes.Compare(e.our_dh_priv[:], NULLSEC[:]) == 1 {
-		e.prev_our_dh_priv = e.our_dh_priv
-		e.prev_our_dh_pub = e.our_dh_pub
-	}
-	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
 	e.their_dh = m.dh
 	e.rid = e.rid + 1
-	//TODO: should we keep this?
-	e.initiator = false
-
-	if bytes.Compare(e.prev_our_dh_priv[:], NULLSEC[:]) == 1 {
-		secret := c.ComputeSecret(e.prev_our_dh_priv, e.their_dh)
-		e.derive(secret[:])
-	} else {
+	if bytes.Compare(e.our_dh_priv[:], NULLSEC[:]) == 1 {
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
 	}
+	//TODO: should we keep this?
+	e.initiator = false
 }
 
 func (e *Entity) receiveP2(m Msg) {
@@ -162,19 +154,15 @@ func (e *Entity) query() Msg {
 }
 
 func (e *Entity) sendP1() Msg {
-	if bytes.Compare(e.our_dh_priv[:], NULLSEC[:]) == 1 {
-		e.prev_our_dh_priv = e.our_dh_priv
-		e.prev_our_dh_pub = e.our_dh_pub
-	}
-
 	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
 
 	e.j = 1
 	e.rid = e.rid + 1
-	if e.rid > 0 {
+	if bytes.Compare(e.their_dh[:], NULLPUB[:]) == 1 {
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
 	}
+
 	//TODO: should we keep this?
 	e.initiator = true
 
@@ -186,10 +174,9 @@ func (e *Entity) sendP1() Msg {
 func (e *Entity) sendP2() Msg {
 	e.j = 0
 	e.rid = e.rid + 1
-	if e.rid > 0 {
-		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-		e.derive(secret[:])
-	}
+	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
+	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+	e.derive(secret[:])
 
 	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub}
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
@@ -202,8 +189,23 @@ func main() {
 	a.receive(b.sendP1())
 	b.receive(a.sendP2())
 
+	fmt.Println("Testing sync data message")
+
+	a.receive(b.sendData())
+	a.receive(b.sendData())
 	b.receive(a.sendData())
 	b.receive(a.sendData())
+
+	fmt.Println("Testing async data message")
+
+	m1 := a.sendData()
+	m2 := b.sendData()
+	m3 := a.sendData()
+	b.receive(m1)
+	b.receive(m3)
+	a.receive(m2)
+
+	fmt.Println("Testing new sync DAKE")
 
 	b.receive(a.query())
 	a.receive(b.sendP1())
@@ -214,14 +216,6 @@ func main() {
 	a.receive(b.sendData())
 	a.receive(b.sendData())
 
-	m1 := a.sendData()
-	m2 := b.sendData()
-	m3 := a.sendData()
-	b.receive(m1)
-	a.receive(m2)
-	b.receive(m3)
-	a.receive(b.sendData())
-	b.receive(a.sendData())
 }
 
 func initialize() (alice, bob Entity) {
