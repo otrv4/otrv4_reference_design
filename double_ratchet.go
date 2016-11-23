@@ -87,8 +87,13 @@ func (e *Entity) receiveP1(m Msg) {
 	//TODO: should we keep this?
 	e.initiator = false
 
-	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-	e.derive(secret[:])
+	if bytes.Compare(e.prev_our_dh_priv[:], NULLSEC[:]) == 1 {
+		secret := c.ComputeSecret(e.prev_our_dh_priv, e.their_dh)
+		e.derive(secret[:])
+	} else {
+		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+		e.derive(secret[:])
+	}
 }
 
 func (e *Entity) receiveP2(m Msg) {
@@ -161,21 +166,33 @@ func (e *Entity) sendP1() Msg {
 		e.prev_our_dh_priv = e.our_dh_priv
 		e.prev_our_dh_pub = e.our_dh_pub
 	}
+
 	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
+
 	e.j = 1
 	e.rid = e.rid + 1
+	if e.rid > 0 {
+		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+		e.derive(secret[:])
+	}
 	//TODO: should we keep this?
 	e.initiator = true
 
 	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub}
+	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	return toSend
 }
 
 func (e *Entity) sendP2() Msg {
 	e.j = 0
 	e.rid = e.rid + 1
+	if e.rid > 0 {
+		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+		e.derive(secret[:])
+	}
 
 	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub}
+	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	return toSend
 }
 
@@ -187,13 +204,13 @@ func main() {
 
 	b.receive(a.sendData())
 	b.receive(a.sendData())
-	b.receive(a.sendData())
-	b.receive(a.sendData())
-	b.receive(a.sendData())
 
-	a.receive(b.sendData())
-	a.receive(b.sendData())
-	a.receive(b.sendData())
+	b.receive(a.query())
+	a.receive(b.sendP1())
+	b.receive(a.sendP2())
+
+	b.receive(a.sendData())
+	b.receive(a.sendData())
 	a.receive(b.sendData())
 	a.receive(b.sendData())
 
