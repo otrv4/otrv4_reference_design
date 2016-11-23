@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 
 	"golang.org/x/crypto/sha3"
@@ -8,31 +9,40 @@ import (
 	"github.com/twstrike/ed448"
 )
 
+const (
+	Q = iota
+	P1
+	P2
+	D
+)
+
 type Msg struct {
+	mtype    int
 	sender   string
 	rid, mid int
 	dh       pubkey
 }
 
 var c = ed448.NewCurve()
+var NULLSEC = seckey{}
 
 type seckey [144]byte
 type pubkey [56]byte
 type key []byte
 
 type Entity struct {
-	name                 string
-	our_dh_pub, their_dh pubkey
-	our_dh_priv          seckey
-	R                    []key
-	Ca, Cb               []key
-	rid, j, k            int
-	initiator            bool
+	name                                  string
+	our_dh_pub, prev_our_dh_pub, their_dh pubkey
+	our_dh_priv, prev_our_dh_priv         seckey
+	R                                     []key
+	Ca, Cb                                []key
+	rid, j, k                             int
+	initiator                             bool
 }
 
-func (e *Entity) send() Msg {
+func (e *Entity) sendData() Msg {
 	var cj key
-	if e.j == 0 && !(e.rid == 0 && !e.initiator) {
+	if e.j == 0 {
 		fmt.Println()
 		fmt.Printf("%s \tRatcheting...\n", e.name)
 		e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
@@ -40,7 +50,7 @@ func (e *Entity) send() Msg {
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
 	}
-	toSend := Msg{e.name, e.rid, e.j, e.our_dh_pub}
+	toSend := Msg{D, e.name, e.rid, e.j, e.our_dh_pub}
 	cj = e.retriveChainkey(e.rid, e.j)
 	e.j += 1
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
@@ -51,6 +61,45 @@ func (e *Entity) send() Msg {
 func (e *Entity) receive(m Msg) {
 	fmt.Println()
 	fmt.Printf("%s \treceive: %v\n", e.name, m)
+	switch m.mtype {
+	case D:
+		e.receiveData(m)
+		break
+	case Q:
+		break
+	case P1:
+		e.receiveP1(m)
+		break
+	case P2:
+		e.receiveP2(m)
+		break
+	}
+}
+
+func (e *Entity) receiveP1(m Msg) {
+	if bytes.Compare(e.our_dh_priv[:], NULLSEC[:]) == 1 {
+		e.prev_our_dh_priv = e.our_dh_priv
+		e.prev_our_dh_pub = e.our_dh_pub
+	}
+	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
+	e.their_dh = m.dh
+	e.rid = e.rid + 1
+	//TODO: should we keep this?
+	e.initiator = false
+
+	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+	e.derive(secret[:])
+}
+
+func (e *Entity) receiveP2(m Msg) {
+	e.their_dh = m.dh
+	e.rid = e.rid + 1
+
+	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+	e.derive(secret[:])
+}
+
+func (e *Entity) receiveData(m Msg) {
 	ck := make([]byte, 64)
 	if m.rid == e.rid+1 {
 		fmt.Printf("%s \tFollow Ratcheting...\n", e.name)
@@ -101,37 +150,68 @@ func (e *Entity) derive(secret []byte) {
 	e.Cb = append(e.Cb, cb)
 }
 
+func (e *Entity) query() Msg {
+	toSend := Msg{mtype: Q, sender: e.name}
+	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
+	return toSend
+}
+
+func (e *Entity) sendP1() Msg {
+	if bytes.Compare(e.our_dh_priv[:], NULLSEC[:]) == 1 {
+		e.prev_our_dh_priv = e.our_dh_priv
+		e.prev_our_dh_pub = e.our_dh_pub
+	}
+	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
+	e.j = 1
+	e.rid = e.rid + 1
+	//TODO: should we keep this?
+	e.initiator = true
+
+	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub}
+	return toSend
+}
+
+func (e *Entity) sendP2() Msg {
+	e.j = 0
+	e.rid = e.rid + 1
+
+	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub}
+	return toSend
+}
+
 func main() {
 	a, b := initialize()
+	b.receive(a.query())
+	a.receive(b.sendP1())
+	b.receive(a.sendP2())
 
-	a.receive(b.send())
-	b.receive(a.send())
-	m1 := a.send()
-	m2 := b.send()
-	m3 := a.send()
+	b.receive(a.sendData())
+	b.receive(a.sendData())
+	b.receive(a.sendData())
+	b.receive(a.sendData())
+	b.receive(a.sendData())
+
+	a.receive(b.sendData())
+	a.receive(b.sendData())
+	a.receive(b.sendData())
+	a.receive(b.sendData())
+	a.receive(b.sendData())
+
+	m1 := a.sendData()
+	m2 := b.sendData()
+	m3 := a.sendData()
 	b.receive(m1)
 	a.receive(m2)
 	b.receive(m3)
-	a.receive(b.send())
-	b.receive(a.send())
+	a.receive(b.sendData())
+	b.receive(a.sendData())
 }
 
 func initialize() (alice, bob Entity) {
-	alice.our_dh_priv, alice.our_dh_pub, _ = c.GenerateKeys()
-	bob.our_dh_priv, bob.our_dh_pub, _ = c.GenerateKeys()
-
-	alice.their_dh = bob.our_dh_pub
-	bob.their_dh = alice.our_dh_pub
-
-	secret := c.ComputeSecret(alice.our_dh_priv, alice.their_dh)
-
 	alice.name = "Alice"
-	alice.initiator = true
-	alice.derive(secret[:])
-
+	alice.rid = -2
 	bob.name = "Bob"
-	bob.initiator = false
-	bob.derive(secret[:])
+	bob.rid = -2
 
 	return alice, bob
 }
