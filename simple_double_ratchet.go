@@ -86,27 +86,62 @@ func (e *Entity) receive(m Msg) {
 	}
 }
 
+func (e *Entity) transitionDAKE() bool {
+	return e.rid > 0
+}
+
+func (e *Entity) sendP1() Msg {
+	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
+
+	if e.transitionDAKE() {
+		fmt.Println("Sending a P1 to transition to a new DAKE")
+	}
+
+	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub, nil}
+	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
+	return toSend
+}
+
 func (e *Entity) receiveP1(m Msg) {
 	e.their_dh = m.dh
-	e.rid = e.rid + 1
-	if bytes.Compare(e.our_dh_priv[:], NULLSEC[:]) == 1 {
-		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-		e.derive(secret[:])
+
+	if e.transitionDAKE() {
+		fmt.Println("Receiving a P1 to transition to a new DAKE")
 	}
+}
+
+func (e *Entity) sendP2() Msg {
+	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
+	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+	e.derive(secret[:])
+	e.j = 0 // she will ratchet when sending next
+
+	if e.transitionDAKE() {
+		fmt.Println("Sending a P2 to transition to a new DAKE")
+	}
+
+	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub, nil}
+	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
+	return toSend
 }
 
 func (e *Entity) receiveP2(m Msg) {
 	e.their_dh = m.dh
-	e.rid = e.rid + 1
-
 	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 	e.derive(secret[:])
+
+	e.j = 1 // so he does not ratchet
+
+	if e.transitionDAKE() {
+		fmt.Println("Receiving a P2 to transition to a new DAKE")
+	}
 }
 
 func (e *Entity) receiveData(m Msg) {
 	ck := make([]byte, 64)
 	if m.rid == e.rid+1 {
 		fmt.Printf("%s \tFollow Ratcheting...\n", e.name)
+
 		e.rid = m.rid
 		e.their_dh = m.dh
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
@@ -161,33 +196,6 @@ func (e *Entity) derive(secret []byte) {
 
 func (e *Entity) query() Msg {
 	toSend := Msg{mtype: Q, sender: e.name}
-	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
-	return toSend
-}
-
-func (e *Entity) sendP1() Msg {
-	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
-
-	e.j = 1
-	e.rid = e.rid + 1
-	if bytes.Compare(e.their_dh[:], NULLPUB[:]) == 1 {
-		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-		e.derive(secret[:])
-	}
-
-	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub, nil}
-	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
-	return toSend
-}
-
-func (e *Entity) sendP2() Msg {
-	e.j = 0
-	e.rid = e.rid + 1
-	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
-	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-	e.derive(secret[:])
-
-	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub, nil}
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	return toSend
 }
@@ -257,9 +265,9 @@ func main() {
 
 func initialize() (alice, bob Entity) {
 	alice.name = "Alice"
-	alice.rid = -2
+	alice.rid = 0
 	bob.name = "Bob"
-	bob.rid = -2
+	bob.rid = 0
 
 	return alice, bob
 }
