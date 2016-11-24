@@ -21,6 +21,14 @@ type Msg struct {
 	sender   string
 	rid, mid int
 	dh       pubkey
+
+	encKey key // this is here only to check if we can decrypt
+}
+
+func (m Msg) decryptWith(k key) {
+	if !bytes.Equal(k, m.encKey) {
+		panic("failed to decrypt message.")
+	}
 }
 
 var c = ed448.NewCurve()
@@ -50,9 +58,11 @@ func (e *Entity) sendData() Msg {
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 		e.derive(secret[:])
 	}
-	toSend := Msg{D, e.name, e.rid, e.j, e.our_dh_pub}
+
 	cj = e.retriveChainkey(e.rid, e.j)
+	toSend := Msg{D, e.name, e.rid, e.j, e.our_dh_pub, cj}
 	e.j += 1
+
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	fmt.Printf("%s \tour key: %x\n", e.name, cj)
 	return toSend
@@ -103,18 +113,25 @@ func (e *Entity) receiveData(m Msg) {
 		e.derive(secret[:])
 		e.j = 0 // need to ratchet next time when send
 	} else if e.k > m.mid {
-		panic("we received a message delayed out of order")
+		//panic("we received a message delayed out of order")
 	}
+
 	e.k = m.mid
 	ck = e.retriveChainkey(m.rid, m.mid)
 	fmt.Printf("%s \ttheir key: %x\n", e.name, ck)
+
+	m.decryptWith(ck)
+}
+
+func (e *Entity) wasAliceAt(rid int) bool {
+	return rid%2 == 1
 }
 
 func (e *Entity) retriveChainkey(rid, mid int) key {
 	var ck key
 	buf := make([]byte, 64)
-	alice := rid%2 == 1
-	if alice {
+
+	if e.wasAliceAt(rid) {
 		ck = e.Ca[rid]
 	} else {
 		ck = e.Cb[rid]
@@ -158,7 +175,7 @@ func (e *Entity) sendP1() Msg {
 		e.derive(secret[:])
 	}
 
-	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub}
+	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub, nil}
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	return toSend
 }
@@ -170,7 +187,7 @@ func (e *Entity) sendP2() Msg {
 	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 	e.derive(secret[:])
 
-	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub}
+	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub, nil}
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
 	return toSend
 }
@@ -225,6 +242,7 @@ func main() {
 	b1 := b.sendData() // bob sends a data message during a new DAKE - surely a follow up msg.
 
 	b.receive(a.sendData()) // a sends a new message before she receives p1, but after bob sends p1.
+	// this will be a new ratchet, and thats a problem because bob will also ratchet when sending p1.
 
 	a.receive(p1)      // a receives p1
 	p2 := a.sendP2()   // ... and immediately replies with a p2
