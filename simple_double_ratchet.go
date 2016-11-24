@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha512"
 	"fmt"
 
 	"golang.org/x/crypto/sha3"
@@ -195,7 +196,18 @@ func (e *Entity) receiveData(m Msg) {
 
 		e.rid = m.rid
 		e.their_dh = m.dh
-		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+		var secret [sha512.Size]byte
+		if e.AuthState == AUTHSTATE_AWAITING_DRE_AUTH {
+			// We have sent a P1 but Alice started a NEW ratchet before receiving it.
+			// We must use our_prev_dh_priv (from before P1) and their_dh (from the msg).
+			// Once we receive P2, we should use their_dh from P2 and our_dh from P1.
+			fmt.Println(" - We are waiting P2")
+
+			secret = c.ComputeSecret(e.our_prev_dh_priv, e.their_dh)
+		} else {
+			secret = c.ComputeSecret(e.our_dh_priv, e.their_dh)
+		}
+
 		e.derive(secret[:])
 		e.j = 0 // need to ratchet next time when send
 	} else if e.k > m.mid {
