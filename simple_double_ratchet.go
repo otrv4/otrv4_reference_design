@@ -47,12 +47,12 @@ const (
 )
 
 type Entity struct {
-	name                 string
-	our_dh_pub, their_dh pubkey
-	our_dh_priv          seckey
-	R                    []key
-	Ca, Cb               []key
-	rid, j, k            int
+	name                          string
+	our_dh_pub, their_dh          pubkey
+	our_dh_priv, our_prev_dh_priv seckey
+	R                             []key
+	Ca, Cb                        []key
+	rid, j, k                     int
 
 	AuthState
 }
@@ -62,6 +62,7 @@ func (e *Entity) sendData() Msg {
 	if e.j == 0 {
 		fmt.Println()
 		fmt.Printf("%s \tRatcheting...\n", e.name)
+		copy(e.our_prev_dh_priv[:], e.our_dh_priv[:])
 		e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
 		e.rid += 1
 		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
@@ -100,6 +101,7 @@ func (e *Entity) transitionDAKE() bool {
 }
 
 func (e *Entity) sendP1() Msg {
+	copy(e.our_prev_dh_priv[:], e.our_dh_priv[:])
 	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
 
 	if e.transitionDAKE() {
@@ -149,6 +151,7 @@ func (e *Entity) receiveP1(m Msg) {
 }
 
 func (e *Entity) sendP2() Msg {
+	copy(e.our_prev_dh_priv[:], e.our_dh_priv[:])
 	e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
 	secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
 	e.derive(secret[:])
