@@ -264,7 +264,64 @@ func (e *Entity) query() Msg {
 }
 
 func main() {
-	a, b := initialize()
+	fmt.Println("=========================")
+	fmt.Println("Testing fresh DAKE")
+	fmt.Println("=========================")
+
+	runFreshDAKE()
+
+	fmt.Println("=========================")
+	fmt.Println("Testing sync data message")
+	fmt.Println("=========================")
+
+	testSyncDataMessages(runFreshDAKE())
+
+	fmt.Println("=========================")
+	fmt.Println("Testing async data message")
+	fmt.Println("=========================")
+
+	testAsyncDataMessages(runFreshDAKE())
+
+	fmt.Println("=========================")
+	fmt.Println("Testing new sync DAKE")
+	fmt.Println("=========================")
+
+	// a sends first, will start a new ratchet
+	testSyncDataMessages(runFreshDAKE())
+
+	a, b := runFreshDAKE()
+	// b sends first, meaning it should start by sending a follow up msg
+	testSyncDataMessages(b, a)
+
+	fmt.Println("=========================")
+	fmt.Println("Testing async DAKE message - Late msg is a follow up")
+	fmt.Println("=========================")
+
+	a, b = runFreshDAKE()
+	testSyncDataMessages(a, b)
+
+	//B will send a late msg during a new DAKE.
+	a.receive(b.sendData()) //Make sure late msg is a follow up
+	testAsyncDAKE_InitiatorReceivesLateMsgFromPreviousDAKE(a, b)
+	testSyncDataMessages(a, b)
+
+	fmt.Println("=========================")
+	fmt.Println("Testing async DAKE message - Late msg is a new RATCHET")
+	fmt.Println("=========================")
+
+	a, b = runFreshDAKE()
+	testSyncDataMessages(a, b)
+
+	//B will send a late msg during a new DAKE.
+	b.receive(a.sendData()) //Make sure late msg is a new RATCHET
+	testAsyncDAKE_InitiatorReceivesLateMsgFromPreviousDAKE(a, b)
+	testSyncDataMessages(a, b)
+
+	//
+	// OLD TEST
+	//
+
+	a, b = initialize()
 	b.receive(a.query())
 	a.receive(b.sendP1())
 	b.receive(a.sendP2())
@@ -307,11 +364,14 @@ func main() {
 	fmt.Println("Testing async DAKE message")
 	fmt.Println("=========================")
 
+	a.receive(b.sendData()) // make sure b0 is a follow up
+
 	b.receive(a.query())
 	p1 := b.sendP1()
 	b0 := b.sendData() // bob sends a data message during a new DAKE, is this a follow up msg?
 	b1 := b.sendData() // bob sends a data message during a new DAKE - surely a follow up msg.
 
+	//FIXME
 	b.receive(a.sendData()) // a sends a new message before she receives p1, but after bob sends p1.
 	// this will be a new ratchet, and thats a problem because bob will also ratchet when sending p1.
 
@@ -324,13 +384,79 @@ func main() {
 
 	a.receive(b0) // a receives b0 (I want to see how it works if she receives this BEFORE sending a0)
 	a.receive(b1) // a receives b1
+
+	// After delayed messages, happy path
+	a.receive(b.sendData()) // b sends, a new ratchet starts and alice follows
+	a.receive(b.sendData()) // b sends a follow up
+	b.receive(a.sendData()) // a sends, a new ratchet starts and bob follows
+	b.receive(a.sendData()) // a sends a follow up
+
 }
 
-func initialize() (alice, bob Entity) {
+func initialize() (alice, bob *Entity) {
+	alice = new(Entity)
+	bob = new(Entity)
+
 	alice.name = "Alice"
 	alice.rid = 0
+
 	bob.name = "Bob"
 	bob.rid = 0
 
-	return alice, bob
+	return
+}
+
+func runFreshDAKE() (a, b *Entity) {
+	return testSyncDAKE(initialize())
+}
+
+func testSyncDAKE(a, b *Entity) (*Entity, *Entity) {
+	b.receive(a.query())
+	a.receive(b.sendP1())
+	b.receive(a.sendP2())
+
+	return a, b
+}
+
+func testSyncDataMessages(a, b *Entity) {
+	a.receive(b.sendData()) // b sends first, so no new ratchet happens.
+	a.receive(b.sendData()) // b again: this is another follow up msg.
+	b.receive(a.sendData()) // a sends, a new ratchet happens and bob follows.
+	b.receive(a.sendData()) // a again: this is a follow up.
+}
+
+func testAsyncDataMessages(a, b *Entity) {
+	b.receive(a.sendData()) // enforce m1 is a follow up
+	m1 := a.sendData()      // a sends again: another follow up message.
+	m2 := b.sendData()      // b sends now, a new ratcher happens for bob.
+	m3 := a.sendData()      // a sends again: another follow up message.
+
+	b.receive(m1) // b receives follow up message from a previous ratchet.
+	b.receive(m3) // b receives follow up message from a previous ratchet.
+	a.receive(m2) // a receives a message from a new ratchet. She follows the ratchet.
+}
+
+// NOTE The late message may or may not be a follow up.
+// NOTE Bob does not receive any message after starting the DAKE.
+// NOTE Bob does not receive any late messages after both finish the DAKE.
+func testAsyncDAKE_InitiatorReceivesLateMsgFromPreviousDAKE(a, b *Entity) {
+	b.receive(a.query())
+	p1 := b.sendP1()
+
+	// Bob sends a message which wiill be delivered late. It can be a follow up or not.
+	late := b.sendData()
+
+	// NOTE Bob does not receive any message after starting the DAKE.
+
+	a.receive(p1)    // a receives p1
+	p2 := a.sendP2() // ... and immediately replies with a p2. The DAKE finishes for Alice.
+
+	// Alice receives the late message after finishing the DAKE
+	a.receive(late)
+
+	// AKE finishes for Bob.
+	b.receive(p2)
+
+	// NOTE Bob does not receive any late messages from Alice.
+	// This can only happen if she do not receive P1.
 }
