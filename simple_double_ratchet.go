@@ -63,11 +63,20 @@ func (e *Entity) sendData() Msg {
 	if e.j == 0 {
 		fmt.Println()
 		fmt.Printf("%s \tRatcheting...\n", e.name)
-		copy(e.our_prev_dh_priv[:], e.our_dh_priv[:])
-		e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
-		e.rid += 1
-		secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
-		e.derive(secret[:])
+
+		if e.AuthState == AUTHSTATE_AWAITING_DRE_AUTH {
+			// We have sent a P1 (which was not received) but we need to ratchet.
+			// We skip this ratchet, because we already did it when sending P1.
+			// At this moment, our_prev_priv = DH from before the new DAKE
+			//                 our_priv = DH from P1
+			fmt.Println(" - We are waiting P2. So we skip generating new DH key")
+		} else {
+			copy(e.our_prev_dh_priv[:], e.our_dh_priv[:])
+			e.our_dh_priv, e.our_dh_pub, _ = c.GenerateKeys()
+			e.rid += 1
+			secret := c.ComputeSecret(e.our_dh_priv, e.their_dh)
+			e.derive(secret[:])
+		}
 	}
 
 	cj = e.retriveChainkey(e.rid, e.j)
@@ -264,46 +273,51 @@ func (e *Entity) query() Msg {
 }
 
 func main() {
-	fmt.Println("=========================")
-	fmt.Println("Testing fresh DAKE")
-	fmt.Println("=========================")
+	var a, b *Entity
 
-	runFreshDAKE()
+	//XXX They are all good so far
+	if true {
+		fmt.Println("=========================")
+		fmt.Println("Testing fresh DAKE")
+		fmt.Println("=========================")
 
-	fmt.Println("=========================")
-	fmt.Println("Testing sync data message")
-	fmt.Println("=========================")
+		runFreshDAKE()
 
-	testSyncDataMessages(runFreshDAKE())
+		fmt.Println("=========================")
+		fmt.Println("Testing sync data message")
+		fmt.Println("=========================")
 
-	fmt.Println("=========================")
-	fmt.Println("Testing async data message")
-	fmt.Println("=========================")
+		testSyncDataMessages(runFreshDAKE())
 
-	testAsyncDataMessages(runFreshDAKE())
+		fmt.Println("=========================")
+		fmt.Println("Testing async data message")
+		fmt.Println("=========================")
 
-	fmt.Println("=========================")
-	fmt.Println("Testing new sync DAKE")
-	fmt.Println("=========================")
+		testAsyncDataMessages(runFreshDAKE())
 
-	// a sends first, will start a new ratchet
-	testSyncDataMessages(runFreshDAKE())
+		fmt.Println("=========================")
+		fmt.Println("Testing new sync DAKE")
+		fmt.Println("=========================")
 
-	a, b := runFreshDAKE()
-	// b sends first, meaning it should start by sending a follow up msg
-	testSyncDataMessages(b, a)
+		// a sends first, will start a new ratchet
+		testSyncDataMessages(runFreshDAKE())
 
-	fmt.Println("=========================")
-	fmt.Println("Testing async DAKE message - Late msg is a follow up")
-	fmt.Println("=========================")
+		a, b = runFreshDAKE()
+		// b sends first, meaning it should start by sending a follow up msg
+		testSyncDataMessages(b, a)
 
-	a, b = runFreshDAKE()
-	testSyncDataMessages(a, b)
+		fmt.Println("=========================")
+		fmt.Println("Testing async DAKE message - Late msg is a follow up")
+		fmt.Println("=========================")
 
-	//B will send a late msg during a new DAKE.
-	a.receive(b.sendData()) //Make sure late msg is a follow up
-	testAsyncDAKE_InitiatorReceivesLateMsgFromPreviousDAKE(a, b)
-	testSyncDataMessages(a, b)
+		a, b = runFreshDAKE()
+		testSyncDataMessages(a, b)
+
+		//B will send a late msg during a new DAKE.
+		a.receive(b.sendData()) //Make sure late msg is a follow up
+		testAsyncDAKE_InitiatorReceivesLateMsgFromPreviousDAKE(a, b)
+		testSyncDataMessages(a, b)
+	}
 
 	fmt.Println("=========================")
 	fmt.Println("Testing async DAKE message - Late msg is a new RATCHET")
