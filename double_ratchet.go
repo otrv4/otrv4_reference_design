@@ -185,21 +185,22 @@ func main() {
 	fmt.Println("Testing sync data message")
 	fmt.Println("=========================")
 
-	a.receive(b.sendData())
-	a.receive(b.sendData())
-	b.receive(a.sendData())
-	b.receive(a.sendData())
+	a.receive(b.sendData()) // b sends first, so no new ratchet happens.
+	a.receive(b.sendData()) // b again: this is another follow up msg.
+	b.receive(a.sendData()) // a sends, a new ratchet happens and bob follows.
+	b.receive(a.sendData()) // a again: this is a follow up.
 
 	fmt.Println("=========================")
 	fmt.Println("Testing async data message")
 	fmt.Println("=========================")
 
-	m1 := a.sendData()
-	m2 := b.sendData()
-	m3 := a.sendData()
-	b.receive(m1)
-	b.receive(m3)
-	a.receive(m2)
+	m1 := a.sendData() // a sends again: another follow up message.
+	m2 := b.sendData() // b sends now, a new ratcher happens for bob.
+	m3 := a.sendData() // a sends again: another follow up message.
+
+	b.receive(m1) // b receives follow up message from a previous ratchet.
+	b.receive(m3) // b receives follow up message from a previous ratchet.
+	a.receive(m2) // a receives a message from a new ratchet. She follows the ratchet.
 
 	fmt.Println("=========================")
 	fmt.Println("Testing new sync DAKE")
@@ -209,31 +210,32 @@ func main() {
 	a.receive(b.sendP1())
 	b.receive(a.sendP2())
 
-	b.receive(a.sendData())
-	b.receive(a.sendData())
-	a.receive(b.sendData())
-	a.receive(b.sendData())
+	b.receive(a.sendData()) // a sends, a new ratchet starts and bob follows
+	b.receive(a.sendData()) // a sends a follow up
+	a.receive(b.sendData()) // b sends, a new ratchet starts and alice follows
+	a.receive(b.sendData()) // b sends a follow up
 
 	fmt.Println("=========================")
 	fmt.Println("Testing async DAKE message")
 	fmt.Println("=========================")
 
 	b.receive(a.query())
-
 	p1 := b.sendP1()
-	a.receive(p1)
+	b0 := b.sendData() // bob sends a data message during a new DAKE, is this a follow up msg?
+	b1 := b.sendData() // bob sends a data message during a new DAKE - surely a follow up msg.
 
-	b0 := b.sendData()
-	b1 := b.sendData()
+	//TODO: bob should also be able to decrypt messages from alice AFTER he sends p1
+	//but BEFORE she receives p1. We are not testing this.
 
-	p2 := a.sendP2()
-	a0 := a.sendData()
+	a.receive(p1)      // a receives p1
+	p2 := a.sendP2()   // ... and immediately replies with a p2
+	a0 := a.sendData() // ... and send a new data msg
 
-	b.receive(p2)
-	b.receive(a0)
+	b.receive(p2) // bob receives a p2
+	b.receive(a0) // and the a0
 
-	a.receive(b0)
-	a.receive(b1)
+	a.receive(b0) // a receives b0 (I want to see how it works if she receives this BEFORE sending a0)
+	a.receive(b1) // a receives b1
 }
 
 func initialize() (alice, bob Entity) {
