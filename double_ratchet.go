@@ -224,8 +224,7 @@ func main() {
 	b0 := b.sendData() // bob sends a data message during a new DAKE, is this a follow up msg?
 	b1 := b.sendData() // bob sends a data message during a new DAKE - surely a follow up msg.
 
-	//TODO: bob should also be able to decrypt messages from alice AFTER he sends p1
-	//but BEFORE she receives p1. We are not testing this.
+	b.receive(a.sendData()) // a sends a new message before she receives p1, but after bob sends p1.
 
 	a.receive(p1)      // a receives p1
 	p2 := a.sendP2()   // ... and immediately replies with a p2
