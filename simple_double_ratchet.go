@@ -39,6 +39,13 @@ type seckey [144]byte
 type pubkey [56]byte
 type key []byte
 
+type AuthState int
+
+const (
+	AUTHSTATE_NONE AuthState = iota
+	AUTHSTATE_AWAITING_DRE_AUTH
+)
+
 type Entity struct {
 	name                 string
 	our_dh_pub, their_dh pubkey
@@ -46,6 +53,8 @@ type Entity struct {
 	R                    []key
 	Ca, Cb               []key
 	rid, j, k            int
+
+	AuthState
 }
 
 func (e *Entity) sendData() Msg {
@@ -99,6 +108,7 @@ func (e *Entity) sendP1() Msg {
 
 	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub, nil}
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
+	e.AuthState = AUTHSTATE_AWAITING_DRE_AUTH
 	return toSend
 }
 
@@ -122,6 +132,7 @@ func (e *Entity) sendP2() Msg {
 
 	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub, nil}
 	fmt.Printf("%s \tsending: %v\n", e.name, toSend)
+	e.AuthState = AUTHSTATE_NONE
 	return toSend
 }
 
@@ -135,6 +146,8 @@ func (e *Entity) receiveP2(m Msg) {
 	if e.transitionDAKE() {
 		fmt.Println("Receiving a P2 to transition to a new DAKE")
 	}
+
+	e.AuthState = AUTHSTATE_NONE
 }
 
 func (e *Entity) receiveData(m Msg) {
