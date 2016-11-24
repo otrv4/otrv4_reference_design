@@ -104,6 +104,33 @@ func (e *Entity) sendP1() Msg {
 
 	if e.transitionDAKE() {
 		fmt.Println("Sending a P1 to transition to a new DAKE")
+
+		// We want:
+		// 1 - Bob to decrypt messages Alice sent before he generated P1.
+		// 2 - Bob to decrypt messages Alice send after rec. P1 (and send. P2).
+		// 3 - Bob to send messages after sending P1, and Alice to decrypt them.
+		// 4 - Alice to send messages after rec. P1 (and send. P2).
+		//     Why would not it work?
+
+		// For 1 and 2:
+		// If Alice sends a new follow up message:
+		// - Bob is already in that ratchet.
+		// - He can decrypt by using the previous Chain Key (available)
+		// If Alice sends a message on a NEW ratchet:
+		// - Bob will see her new DH pub, but which of his DH pub to use?
+		//	- If she HAS received his P1:
+		//	  - Use our_dh_priv (same as what's in P1) and their_dh (from the msg).
+		//	    Since nothing happens between receiving P1 and sending P2, and Alice
+		//	    always start a NEW ratchet on the first message after the DAKE,
+		//	    their_dh won't be from P2.
+		//		  Alice's DH from P2 is a waste, but it does not break. FINE!
+		//		- We can identify this because we will have received P2 before this
+		//		  data msg. DOUBLE FINE!
+		//    - This is how it behaves before. TRIPLE FINE! DONE!
+		//	- If she HAS NOT received his P1, but was ready to a NEW ratchet:
+		//	  - Use our_prev_dh_priv (from before P1) and their_dh (from the msg).
+		//    - We can identify this also: it is every time we receive a data msg
+		//      while we are in WAITING_DRE_AUTH. FINE! DONE!
 	}
 
 	toSend := Msg{P1, e.name, -1, -1, e.our_dh_pub, nil}
@@ -117,6 +144,7 @@ func (e *Entity) receiveP1(m Msg) {
 
 	if e.transitionDAKE() {
 		fmt.Println("Receiving a P1 to transition to a new DAKE")
+		//Nothing happens between this and sendP2, so no need to worry. FINE!
 	}
 }
 
@@ -128,6 +156,13 @@ func (e *Entity) sendP2() Msg {
 
 	if e.transitionDAKE() {
 		fmt.Println("Sending a P2 to transition to a new DAKE")
+
+		// We want:
+		// 1 - Alice to decrypt messages Bob sent after generating P1, but she
+		//     receives after sending P2. Bob has NOT received P2 yet.
+		// 2 - Alice to decrypt messages Bob sent after rec. P2. Fine!
+
+		// For 1 (same as case 3 in sendP1): TODO: elaborate on this. It's late!
 	}
 
 	toSend := Msg{P2, e.name, -1, -1, e.our_dh_pub, nil}
